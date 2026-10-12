@@ -1,35 +1,33 @@
-- name: Adding aliases
-  loop: "{{ aliases | dict2items }}"
-  lineinfile:
-    path: /etc/hosts
-    line: "{{ item.value }} {{ item.key }}"
+---
+# Attacker role
+# Prepares the student's attack box: the tools needed to craft shellcode and
+# exploits, plus the attack-side lab files (attack-code/ and shellcode/).
+# Note: server-code/ is deliberately NOT shipped here, so the Level-2 buffer
+# size stays unknown to the student.
 
-- name: Add zip's password to the wordlist
-  lineinfile:
-      path: /usr/share/wordlists/fasttrack.txt
-      line: IhateMyJob
-
-- name: Remove wordlists
-  file:
-      path: "/usr/share/wordlists/{{ item }}"
-      state: absent
-  with_items:
-    -  dirb 
-    -  dirbuster
-    -  fern-wifi
-    -  metasploit 
-    -  nmap.lst 
-    -  wfuzz 
-    -  rockyou.txt.gz 
-
-
-- name: Copy file fcrackzip with owner and permissions 
-  copy:
-      src: ../files/fcrackzip_1.0-10_amd64.deb
-      dest: /tmp/fcrackzip_1.0-10_amd64.deb
-      owner: root
-      mode: '0644'
-
-- name: Install fcrackzip deb package
+- name: Install attack tooling (netcat, python3, 32-bit build support)
   apt:
-      deb: /tmp/fcrackzip_1.0-10_amd64.deb
+    name:
+      - build-essential
+      - gcc-multilib
+      - python3
+      - netcat-traditional
+      - gdb
+    state: present
+    update_cache: yes
+
+- name: Deploy the shellcode lab files
+  copy:
+    src: shellcode/
+    dest: /home/user/shellcode/
+    owner: user
+    group: user
+    mode: preserve
+
+- name: Deploy the exploit skeleton and helper scripts
+  copy:
+    src: attack-code/
+    dest: /home/user/attack-code/
+    owner: user
+    group: user
+    mode: preserve

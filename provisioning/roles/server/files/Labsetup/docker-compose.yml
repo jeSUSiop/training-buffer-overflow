@@ -1,0 +1,41 @@
+version: "3"
+
+services:
+    bof-server-L1:
+        build:
+            context: ./bof-containers
+            args:
+                LEVEL: L1
+        image: seed-image-bof-server-1
+        container_name: server-1-10.9.0.5
+        tty: true
+        # Publish the container's port 9090 on the host's port 9090 so the
+        # remote attacker VM can reach Level 1 at <server-ip>:9090
+        ports:
+            - "9090:9090"
+        networks:
+            net-10.9.0.0:
+                ipv4_address: 10.9.0.5
+
+    bof-server-L2:
+        build:
+            context: ./bof-containers
+            args:
+                LEVEL: L2
+        image: seed-image-bof-server-2
+        container_name: server-2-10.9.0.6
+        tty: true
+        # Level 2 is reachable from the attacker VM at <server-ip>:9091
+        ports:
+            - "9091:9090"
+        networks:
+            net-10.9.0.0:
+                ipv4_address: 10.9.0.6
+
+
+networks:
+    net-10.9.0.0:
+        name: net-10.9.0.0
+        ipam:
+            config:
+                - subnet: 10.9.0.0/24

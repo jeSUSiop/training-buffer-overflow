@@ -1,3 +1,2 @@
-aliases:
-  attacker: 10.1.26.23
-routings: []
+---
+# (no role vars needed for the buffer-overflow attacker)

@@ -8,11 +8,6 @@
   scm: git
   version: 1.0.1
 
-- name: hosts-aliases
-  src: https://github.com/cyberrangecz/ansible-role-hosts-aliases.git
-  scm: git
-  version: 1.0.0
-
 - name: user-access
   src: https://github.com/cyberrangecz/ansible-role-user-access.git
   scm: git

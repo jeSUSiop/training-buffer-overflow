@@ -1,60 +1,106 @@
-- name: Add the user 'admin' with a bash shell to the user's groups
-  user:
-    name: admin
-    password: "{{ 'admin' | password_hash('sha512') }}"
-    create_home: yes
-    shell: /bin/bash
+---
+# Server role
+# Builds and runs the SEED "Buffer Overflow Attack Lab (Server Version)" as two
+# Docker containers (Level 1 on :9090, Level 2 on :9091), with ASLR disabled and
+# a unique-per-sandbox root flag planted inside each vulnerable container.
 
-- name: Add ChallengeResponse and PasswordAuthentication config
-  blockinfile:
-    path: /etc/ssh/sshd_config.d/99-challenge-password-auth.conf
-    create: yes
-    block: |
-      ChallengeResponseAuthentication yes
-      PasswordAuthentication yes
-  notify: Reload SSH service
-
-- name: Remove ChallengeResponseAuthentication from main sshd_config
-  lineinfile:
-    path: /etc/ssh/sshd_config
-    regexp: '^ChallengeResponseAuthentication'
-    state: absent
-  notify: Reload SSH service
-
-- name: Remove PasswordAuthentication from main sshd_config
-  lineinfile:
-    path: /etc/ssh/sshd_config
-    regexp: '^#?PasswordAuthentication'
-    state: absent
-  notify: Reload SSH service
-
-- name: Adding aliases
-  loop: "{{ aliases | dict2items }}"
-  lineinfile:
-    path: /etc/hosts
-    line: "{{ item.value }} {{ item.key }}"
-
-- name: copy files
+# ---------------------------------------------------------------------------
+# 1. Countermeasures off (baseline). Students re-enable ASLR themselves in Task 6.
+# ---------------------------------------------------------------------------
+- name: Persist ASLR-off across reboots
   copy:
-    src: "{{ item }}"
-    dest: "/home/admin/{{ item }}"
-    owner: admin
-    mode: '640'
-  loop: "{{ files }}"
+    dest: /etc/sysctl.d/99-disable-aslr.conf
+    content: "kernel.randomize_va_space = 0\n"
+    owner: root
+    group: root
+    mode: '0644'
 
-- name: install nfs server
+- name: Disable ASLR now (baseline for the buffer-overflow attacks)
+  command: sysctl -w kernel.randomize_va_space=0
+
+# ---------------------------------------------------------------------------
+# 2. Tooling: 32-bit build support + docker
+# ---------------------------------------------------------------------------
+- name: Install build tools (incl. 32-bit support) and docker
   apt:
-    pkg: nfs-kernel-server
+    name:
+      - build-essential
+      - gcc-multilib
+      - docker.io
+      - docker-compose
     state: present
     update_cache: yes
-  tags:
-    - nfs
 
-- name: ensure nfs service is running (Ubuntu)
+- name: Ensure docker is running
   service:
-    name: "{{ item }}"
+    name: docker
     state: started
-  tags:
-    - nfs
-  with_items:
-    - nfs-kernel-server
+    enabled: yes
+
+# ---------------------------------------------------------------------------
+# 3. Deploy the lab files
+# ---------------------------------------------------------------------------
+- name: Copy the SEED Labsetup to the server
+  copy:
+    src: Labsetup/
+    dest: /home/seed/Labsetup/
+    owner: seed
+    group: seed
+    mode: preserve
+
+# ---------------------------------------------------------------------------
+# 4. Compile the vulnerable binaries and build/start the containers
+# ---------------------------------------------------------------------------
+- name: Compile the vulnerable stack binaries
+  command: make
+  args:
+    chdir: /home/seed/Labsetup/server-code
+    creates: /home/seed/Labsetup/server-code/stack-L2
+
+- name: Copy the compiled binaries into the container build context
+  command: make install
+  args:
+    chdir: /home/seed/Labsetup/server-code
+    creates: /home/seed/Labsetup/bof-containers/stack-L2
+
+- name: Build the container images
+  command: docker-compose build
+  args:
+    chdir: /home/seed/Labsetup
+
+- name: Start the vulnerable containers
+  command: docker-compose up -d
+  args:
+    chdir: /home/seed/Labsetup
+
+# ---------------------------------------------------------------------------
+# 5. Unique-per-sandbox flags (anti-cheat)
+#    Each flag is random for this sandbox, planted root-only inside its
+#    container, so a student can only read it after getting a root shell.
+# ---------------------------------------------------------------------------
+- name: Generate a unique flag per level for this sandbox
+  set_fact:
+    flag_level1: "FLAG-L1-{{ lookup('password', '/dev/null chars=hexdigits length=16') }}"
+    flag_level2: "FLAG-L2-{{ lookup('password', '/dev/null chars=hexdigits length=16') }}"
+
+- name: Plant the Level 1 flag inside its container (root only)
+  command: >
+    docker exec server-1-10.9.0.5
+    bash -c "echo {{ flag_level1 }} > /root/flag && chmod 600 /root/flag && chown root:root /root/flag"
+
+- name: Plant the Level 2 flag inside its container (root only)
+  command: >
+    docker exec server-2-10.9.0.6
+    bash -c "echo {{ flag_level2 }} > /root/flag && chmod 600 /root/flag && chown root:root /root/flag"
+
+# The generated flags are recorded so the training definition can validate each
+# student's submission against their own sandbox values (variant answers).
+- name: Record the generated flags for the training definition
+  copy:
+    dest: /root/training-answers.yml
+    content: |
+      flag_level1: "{{ flag_level1 }}"
+      flag_level2: "{{ flag_level2 }}"
+    owner: root
+    group: root
+    mode: '0600'

@@ -1,23 +1,17 @@
-name: library-junior-hacker
+name: training-buffer-overflow
 
 hosts:
   - name: attacker
     base_box:
-      image: kali
-      mgmt_user: debian
-    flavor: standard.small
+      image: seed
+      mgmt_user: seed
+    flavor: m1.medium
 
   - name: server
     base_box:
-      image: debian-12-x86_64
-      mgmt_user: debian
-    flavor: standard.small
-
-  - name: client
-    base_box:
-      image: debian-12-x86_64
-      mgmt_user: debian
-    flavor: standard.small
+      image: seed
+      mgmt_user: seed
+    flavor: m1.medium
 
 routers:
   - name: router
@@ -31,31 +25,21 @@ wan:
   cidr: 100.100.100.0/24
 
 networks:
-  - name: target-switch
+  - name: lab-switch
     cidr: 10.1.26.0/24
-    accessible_by_user: False
-  - name: attacker-switch
-    cidr: 10.1.27.0/24
 
 net_mappings:
   - host: attacker
-    network: attacker-switch
-    ip: 10.1.27.23
+    network: lab-switch
+    ip: 10.1.26.23
 
   - host: server
-    network: target-switch
+    network: lab-switch
     ip: 10.1.26.9
-
-  - host: client
-    network: target-switch
-    ip: 10.1.26.4
 
 router_mappings:
   - router: router
-    network: target-switch
+    network: lab-switch
     ip: 10.1.26.1
-  - router: router
-    network: attacker-switch
-    ip: 10.1.27.1
 
 groups: []

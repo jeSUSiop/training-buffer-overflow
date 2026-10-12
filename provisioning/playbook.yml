@@ -1,14 +1,8 @@
 ---
-# Basic configuration of all defined devices
+# Provisioning for the Buffer Overflow (SEED Server Version) training sandbox.
 
-# Installation of common tools at all hosts
-- name: Configuring hosts
-  hosts: hosts
-  become: yes
-  roles:
-    - hosts
-
-# Installation and configuration of each host
+# Attacker VM: the student's box (login user / Password123), with the attack
+# tooling and the attack-side lab files.
 - name: Configure attacker
   hosts: attacker
   become: true
@@ -20,25 +14,22 @@
     - role: attacker
     - role: chrony
 
-- name: Configure client
-  hosts: client
-  become: true
-  roles:
-    - role: client
-
+# Server VM: runs the vulnerable BOF containers (Level 1 :9090, Level 2 :9091).
 - name: Configure server
   hosts: server
   become: true
   roles:
     - role: server
+    - role: chrony
 
+# Central logging (unchanged from the template).
 - name: setup hosts logging roles
   hosts:
     - routers
     - hosts
   become: yes
   vars:
-    sandbox_name: junior-hacker-local
+    sandbox_name: buffer-overflow
     central_syslog_ip: 78.128.251.179
   roles:
     - role: sandbox-logging
