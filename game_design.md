@@ -1,121 +1,129 @@
-# Junior hacker training
+# Buffer Overflow Attack Lab (SEED Lab on CyberRangeCZ) — Game Design Document
 
-Welcome! You are a junior hacker, who only recently entered the top-secret school of a legendary master hacker, preceded by incredible legends. Today is your first day of field training, and the master will take you to one of his favorite workplaces -- a crowded urban settlement. What makes such a common place really special? A lot of people without the knowledge of information security basics, with dozens of unsecured routers and default passwords, which invite you to visit their local networks. 
-
-You are in a car at the urban settlement parking lot. The master brought his laptop with Kali Linux that, together with his advice, you can use in today's outdoor training. The main goal of today's training is simple: to steal anything that can be valuable.
+## 1. Overview
+- **Scenario Name**: `training-buffer-overflow`
+- **Topic**: Software Security — Stack Buffer Overflow & Code Injection
+- **Reference**: SEED Labs "Buffer Overflow Attack Lab (Server Version)" (Wenliang Du, Syracuse University) & CyberRangeCZ scenario structure (`library-junior-hacker`)
+- **Total Points**: 20 / 20 points
+- **Target Audience**: Cybersecurity students / junior penetration testers
+- **Student Capacity**: class-scale (unique per-sandbox `root` flags prevent answer sharing)
 
 ## Disclaimer
 
-This game is for educational purposes only. Unauthorized use of the tools that are incorporated into the game is illegal. The story is fictitious.
+This lab is for **educational purposes only**. The techniques must only be used inside
+this training sandbox. Unauthorized use against systems you do not own or have explicit
+permission to test is illegal. The scenario is fictitious.
 
 ## License
 
-This work by Miriam Gáliková is licensed under CC BY 4.0. Terms of this license are available at: https://creativecommons.org/licenses/by/4.0
+This work is licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0).
+Lab content adapted from the SEED Labs Buffer Overflow Attack Lab by Wenliang Du.
 
+---
 
-## Level 1: Getting to know the environment
+## 2. Scenario / Narrative
 
-**Learning outcomes**:
+You are a penetration tester assessing a target network. The **server** (`10.1.26.9`)
+exposes three network services, each wrapping a small C program. All of them copy
+attacker-controlled input into a fixed-size stack buffer without bounds checking — a
+classic **stack buffer overflow** — and all run as **root**. Your mission: overwrite the
+saved return address, inject and run **shellcode**, obtain a **root shell**, and read the
+secret flag on each service. Finally, on a third service that has **ASLR** enabled, you
+defeat address randomization by brute force.
 
-The player learns to orient in Kali Linux and its tools. 
+You work from the **attacker** box (`10.1.26.23`), a SEED Ubuntu machine equipped with
+`gcc`, `python3`, `netcat` and `gdb`, with the lab files in `~/shellcode` and
+`~/attack-code`.
 
-**Task assignment**:
+---
 
-The master handed you a laptop, saying to you: "You studied hard in the past weeks. Now, you are ready for real-world hacking training, but you need the right equipment. In today's lecture, I will teach you using Kali Linux and show you some of its basic functionality, which will make hacking easier. 
+## 3. Infrastructure & Topology
 
-Firstly, Kali is not just another Linux-based system. It contains many handy hacking tools, which I want you to try today. We can't avoid using Nmap, which is a tool for network scanning: it prints the IP addresses of connected hosts and their running services. But my all-time favorite tools are for password cracking, such as John the ripper, Hydra, or fcrackzip. We will try to find an opportunity for you to try some of them out. When the time is right for using the tool, I'll tell you. If you can't figure out how to use the tool, write the suffix `--help` to get detailed instructions.
+| Host | Image | Mgmt User | Flavor | IP Address | Purpose |
+|------|-------|-----------|--------|------------|---------|
+| `attacker` | `seed` | `seed` | `m1.medium` | `10.1.26.23` | Student attack box: `gcc`, `python3`, `netcat`, `gdb`, `~/shellcode`, `~/attack-code` |
+| `server` | `seed` | `seed` | `m1.medium` | `10.1.26.9` | Docker host running the three vulnerable BOF containers (host ASLR on; L1/L2 opt out via `setarch -R`, L3 randomized) |
+| `router` | `debian-12-x86_64` | `debian` | `standard.small` | `10.1.26.1` | Network routing and internet gateway |
 
-Secondly, get acquainted with the command line that you will use to work with Kali Linux. Log in as the user `user` with the password `Password123`, look around your file system, and note the arrangement of files and directories. You will need this knowledge when you hack into another Linux machine."
+- **Network**: `lab-switch` — `10.1.26.0/24`; WAN `internet-connection` — `100.100.100.0/24`.
+- **Vulnerable services** (three Docker containers on `server`):
+  - **Level 1** → `10.1.26.9:9090` — 32-bit, prints the **frame pointer (ebp)** *and* the **buffer address** (ASLR off).
+  - **Level 2** → `10.1.26.9:9091` — 32-bit, prints **only** the buffer address; buffer size is **unknown** (somewhere in [100, 300] bytes) (ASLR off).
+  - **Level 3** → `10.1.26.9:9092` — 32-bit, the **same binary as Level 1** but with **ASLR on**; the leaked address changes on every connection (Task 4 brute-force target).
 
-The flag for this level is the command suffix (option) used for printing more information about some tool (there are two possibilities, submit the longer one).
+---
 
-**Estimated duration**:
+## 4. Scoring Breakdown (Total 20 / 20) & Anti-Cheating Strategy
 
-3 minutes
+Each sandbox plants **unique, random** flags, one per task. Levels 1–3 each get a
+`root`-only `/root/flag` (mode `0600`) inside their container, generated by the `server`
+Ansible role and readable only **after** the student lands a root shell. Task 1 gets a
+sandbox-unique **group** (`flag-t1-…`) on the attacker box, generated by the `attacker`
+role and readable only by running the shellcode (a setuid boundary — see §6). The training
+definition validates each submission against that sandbox's own value
+(`variant_answers: true`), so no two students share an answer.
 
+| Level | Title | Type | Max Score | Hints & Penalties | Flag / Answer |
+|---|---|---|---|---|---|
+| **0** | Introduction | INFO | 0 pt | None | None |
+| **1** | Get Access | ACCESS | 0 pt | None | `start` |
+| **2** | Task 1 — Make the shellcode run `id` | TRAINING | 3 pt | Hint 1 (-0.5), Hint 2 (-1.0) | `{{ flag_task1 }}` (per-sandbox group `flag-t1-…`) |
+| **3** | Task 2 — Level 1 attack (32-bit) | TRAINING | 6 pt | Hint 1 (-1.0), Hint 2 (-1.5), Hint 3 (-2.0) | `{{ flag_level1 }}` (per-sandbox) |
+| **4** | Task 3 — Level 2 attack (size unknown) | TRAINING | 7 pt | Hint 1 (-1.5), Hint 2 (-2.0) | `{{ flag_level2 }}` (per-sandbox) |
+| **5** | Task 4 — Defeat ASLR (brute force) | TRAINING | 4 pt | Hint 1 (-0.5), Hint 2 (-1.0) | `{{ flag_level3 }}` (per-sandbox) |
+| **Total** | | | **20 / 20 pt** | **Penalties: -0.5 to -2.0** | Unique flags per student |
 
-## Level 2: Looking for server’s IP address
+> Tasks are numbered 1–4 for this linear training. They map to the original SEED lab's
+> Task 1 (shellcode), Task 2/3 (Level 1/2 attacks) and the address-randomization task;
+> intermediate SEED tasks out of scope for this training are not included.
 
-**Learning outcomes**:
+Estimated total duration: **~65 minutes**.
 
-The player learns to use nmap tool to scan IP addresses and discover the host's running services.
+---
 
-**Task assignment**:
+## 5. Educational Workflow (Learning Outcomes)
 
-You already managed to guess the password on a Wi-Fi router with the master's help (12345678, really?!), so you have already accessed the local network of one household. At the same time, you saw the other machines' IP addresses in the router's web UI. There are 2 machines with IP addresses: 10.1.26.4 and 10.1.26.9. 
+1. **Shellcode (Task 1)** — Edit the 32-bit shellcode's command string so it runs `id`,
+   build and run it, and read the sandbox-unique `flag-t1-…` group it prints — a group that
+   appears only when `id` is run **through the shellcode** (`a32.out` is installed
+   setuid-root), not when typed in a plain shell. *Outcome:* prove you control what the
+   injected code executes before weaponising it in Task 2.
+2. **Level 1 exploit (Task 2)** — Send a probe with `nc`, read the leaked **ebp** and
+   **buffer address**, compute the return-address offset `(ebp - buffer) + 4`, point `ret`
+   into a NOP sled, and fire the payload. Swap the shellcode's command for a **reverse
+   shell** back to the attacker and `cat /root/flag` as root. *Outcome:* overwrite a
+   return address and gain code execution on a remote service.
+3. **Level 2 exploit (Task 3)** — Buffer size is unknown, so **spray the return address**
+   across the whole candidate window (every 4 bytes) and place shellcode at the end of the
+   517-byte payload, producing **one size-independent exploit**. *Outcome:* build a robust
+   exploit under partial information.
+4. **Defeat ASLR (Task 4)** — Against Level 3 (`:9092`, the same binary as Level 1 but with
+   ASLR on), observe the leaked buffer address change on every connection, then **reuse the
+   fixed Task-2 payload** and brute-force it with `~/attack-code/brute-force.sh` until one
+   run lands in the NOP sled and the root reverse shell connects. *Outcome:* defeat
+   randomization in practice and understand its limits — 19-bit (32-bit) entropy is
+   exhaustible in minutes, while 64-bit entropy makes the same attack impractical.
 
-The master told you that your goal is to gain access to the server. Since there 2 machines in the network, scan the hosts and recognize the server's IP address. You can recognize the server by its running services.
+---
 
-The flag is the port number on which the file sharing service is running on the server's machine.
+## 6. Provisioning Notes
 
-**Estimated duration**:
-
-5 minutes
-
-
-## Level 3: Connect to the server
-
-**Learning outcomes**:
-
-Player learns how to log in remotely using SSH. 
-
-**Task assignment**:
-
-You know the IP address of the server, it was easy, right? Now comes the more interesting part of how to use this knowledge to your advantage. Connect remotely to the server and use legitimate credentials. The master told you that the login details will most likely one of these: admin/password, admin/123456 or admin/admin. It's worth trying, isn't it?
-
-The flag is the entire command for logging into the server. 
-
-**Estimated duration**:
-
-5 minutes
-
-
-## Level 4: Find interesting files
-
-**Learning outcomes**:
-
-The player becomes familiar with the Linux file system and copy ZIP file using SCP. 
-
-**Task assignment**:
-
-You are already logged in to the server. Now is the time to find something exciting and ideally compromising, but we don't know exactly what we are looking for. However... do you still remember the list of services running on the server based on the Nmap scan? You already discovered that the server runs the NFS service. NFS protocol is used for file sharing and remote access to files over a computer network. Maybe this server is used to back up data. Try to look whether the admin's home directory stores any files. Then, copy a useful file to your attacker machine.
-
-The flag is the name of the only ZIP file (including the extension) located in the home directory. 
-
-**Estimated duration**:
-
-5 minutes
-
-
-## Level 5: Crack the password to the zip
-
-**Learning outcomes**:
-
-The player learns to crack a ZIP's password using the fcrackzip tool. 
-
-**Task assignment**:
-
-You have found out that some accounting company's files have been uploaded to this server. And you have a ZIP file with a promising name in your hands, but unfortunately, it is password-protected. The master advised you that a password cracking tool called Fcrackzip was installed on his Kali machine. Find out how you could break the password and reveal the content of the ZIP. 
-
-The flag is the password to the ZIP.
-
-**Estimated duration**:
-
-10 minutes
-
-
-## Level 6: Disable access to the server for an authorized user
-
-**Learning outcomes**:
-
-The player learns how to change the password to the server machine.
-
-**Task assignment**:
-
-Congrats! You have completed your today's training, and the master praised you as one of his best students. In addition, you gained a folder with prominent invoices, and it's up to you what you'll do with them. But you don't want to just leave without fun. Finally, change the admin's password on the server so that a legitimate user will not be able to access their data. 
-
-The flag is the command for changing the password (including username). 
-
-**Estimated duration**:
-
-5 minutes
+- **`server` role**: sets **host ASLR on** (`kernel.randomize_va_space=2`), installs 32-bit
+  build tooling + Docker, compiles `stack-L1`/`stack-L2` from `server-code/` (buffer sizes
+  set in the `Makefile`, e.g. `L1=100`, `L2=180` — instructors can change these per cohort),
+  builds and starts **three** containers (`:9090`, `:9091`, `:9092`; Level 3 reuses the
+  Level-1 binary), and plants the per-sandbox root flags. Levels 1/2 run their server under
+  `setarch -R` to opt out of ASLR (fixed addresses); Level 3 runs without it, so it stays
+  randomized.
+- **`attacker` role**: installs `build-essential`, `gcc-multilib`, `python3`,
+  `netcat-traditional`, `gdb`, and deploys `shellcode/` and `attack-code/`. The
+  `server-code/` is deliberately **not** shipped to the attacker, so the Level 2 buffer
+  size stays unknown to the student. It also creates the per-sandbox **Task 1 group**
+  (`flag-t1-…`), pre-builds `a32.out`, and installs it **setuid-root** so the group is
+  revealed only via the shellcode. The `shellcode/Makefile` uses real prerequisites, so a
+  student running `make` after editing `shellcode_32.py` will not rebuild (and strip the
+  setuid bit from) `a32.out`.
+- **Login**: user `user` / `Password123` on the attacker box (sudo enabled). *Note:* with
+  sudo enabled a determined student could read the Task 1 group name from `/etc/group`
+  directly; remove sudo (or restrict `/etc/group`) if you want Task 1 to be strictly
+  capture-only.

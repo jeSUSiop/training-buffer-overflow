@@ -1,5 +1,14 @@
 version: "3"
 
+# ASLR model for this lab:
+#   * The host has ASLR fully ON (kernel.randomize_va_space = 2).
+#   * Level 1 and Level 2 opt OUT per-process with `setarch -R` (sets the
+#     ADDR_NO_RANDOMIZE personality), so their leaked addresses stay fixed and
+#     the Task 2 / Task 3 exploits land every time.
+#   * Level 3 runs the server WITHOUT setarch, so it inherits the host's ASLR:
+#     the leaked address changes on every connection and the fixed Task 2
+#     payload only lands by brute force (Task 4).
+
 services:
     bof-server-L1:
         build:
@@ -9,6 +18,8 @@ services:
         image: seed-image-bof-server-1
         container_name: server-1-10.9.0.5
         tty: true
+        # ASLR off for Level 1 (fixed addresses).
+        command: ["/bin/bash", "-c", "setarch $(uname -m) -R ./server"]
         # Publish the container's port 9090 on the host's port 9090 so the
         # remote attacker VM can reach Level 1 at <server-ip>:9090
         ports:
@@ -25,12 +36,32 @@ services:
         image: seed-image-bof-server-2
         container_name: server-2-10.9.0.6
         tty: true
+        # ASLR off for Level 2 (fixed addresses; buffer size still unknown).
+        command: ["/bin/bash", "-c", "setarch $(uname -m) -R ./server"]
         # Level 2 is reachable from the attacker VM at <server-ip>:9091
         ports:
             - "9091:9090"
         networks:
             net-10.9.0.0:
                 ipv4_address: 10.9.0.6
+
+    bof-server-L3:
+        build:
+            context: ./bof-containers
+            args:
+                # Same vulnerable binary as Level 1 -- only ASLR differs.
+                LEVEL: L1
+        image: seed-image-bof-server-3
+        container_name: server-3-10.9.0.7
+        tty: true
+        # No setarch: ASLR stays ON for Level 3 (addresses randomise per run).
+        command: ["/bin/bash", "-c", "./server"]
+        # Level 3 (ASLR on) is reachable from the attacker VM at <server-ip>:9092
+        ports:
+            - "9092:9090"
+        networks:
+            net-10.9.0.0:
+                ipv4_address: 10.9.0.7
 
 
 networks:

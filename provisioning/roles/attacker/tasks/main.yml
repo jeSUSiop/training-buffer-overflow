@@ -31,3 +31,59 @@
     owner: user
     group: user
     mode: preserve
+
+# ---------------------------------------------------------------------------
+# Task 1 flag keeper (unique per sandbox)
+#
+# The Task 1 flag is the name of a special group that only shows up in `id`
+# when `id` is launched *through the shellcode*. The shellcode runner
+# (call_shellcode.c -> a32.out) is installed setuid-root; on startup it adds
+# this group to the process as a supplementary group and then drops back to the
+# normal user before running the injected command. Typing `id` in your own
+# shell does not reveal it (you are not a member of the group), so the only way
+# to read it is to make the shellcode run `id` -- which is the whole point of
+# Task 1.
+# ---------------------------------------------------------------------------
+- name: Generate the unique Task 1 flag (group name) for this sandbox
+  set_fact:
+    flag_task1: "flag-t1-{{ lookup('password', '/dev/null chars=hexdigits length=12') | lower }}"
+
+- name: Create the Task 1 flag group (user is deliberately NOT a member)
+  group:
+    name: "{{ flag_task1 }}"
+    state: present
+  register: flag_t1_group
+
+- name: Record the Task 1 flag group's gid for the shellcode runner (root only)
+  copy:
+    dest: /etc/sl-flag-gid
+    content: "{{ flag_t1_group.gid }}\n"
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Pre-build the shellcode runners (a32.out / a64.out)
+  command: make
+  args:
+    chdir: /home/user/shellcode
+    creates: /home/user/shellcode/a32.out
+  become: true
+  become_user: user
+
+- name: Install the 32-bit shellcode runner setuid-root (Task 1 flag keeper)
+  file:
+    path: /home/user/shellcode/a32.out
+    owner: root
+    group: root
+    mode: '4755'
+
+# The generated flag is recorded so the training definition can validate each
+# student's submission against their own sandbox value (variant answers).
+- name: Record the generated Task 1 flag for the training definition
+  copy:
+    dest: /root/training-answers.yml
+    content: |
+      flag_task1: "{{ flag_task1 }}"
+    owner: root
+    group: root
+    mode: '0600'
