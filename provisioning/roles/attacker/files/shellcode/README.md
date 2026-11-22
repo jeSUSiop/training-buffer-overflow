@@ -1,8 +1,7 @@
 
-- Compile the code using `make`. It will generate two executables:
-  `a32.out` (32-bit code) and `a64.out` (64-bit code).
+This lab is **32-bit only**.
 
-- Run the two Python programs to generate the shellcode, one for 32-bit,
-  and the other for 64-bit. You can modify the shellcode.  
-
-- Run `a32.out` and `a64.out` to test your shellcode.
+- Compile the code using `make`. It generates the `a32.out` executable (32-bit code).
+- Run `./shellcode_32.py` to generate the shellcode (writes `codefile_32`). You can
+  modify the command string it runs.
+- Run `./a32.out` to test your shellcode.

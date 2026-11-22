@@ -45,9 +45,11 @@ Each sandbox plants **unique, random** flags, one per task:
 - **Levels 1–3** — a `root`-only `/root/flag` (mode `0600`) inside each vulnerable
   container, readable only **after** a root shell (`flag_level1` / `flag_level2` / `flag_level3`).
 - **Task 1** — a sandbox-unique **group** on the attacker box (`flag-t1-…`, variable
-  `flag_task1`). The shellcode runner `a32.out` is installed setuid-root so the group
-  shows up in `id` only when `id` is run **through the shellcode**; typing `id` in a plain
-  shell does not reveal it.
+  `flag_task1`), owned by a dedicated `flagkeeper1` account (the group is its primary
+  group). The shellcode runner `a32.out` is installed setuid-root; it calls
+  `initgroups(flagkeeper1)` to pick up that group, then drops to the student user, so the
+  group shows up in `id` only when `id` is run **through the shellcode** — not when typed
+  in a plain shell.
 
 The training definition validates each submission against that sandbox's own value
 (`variant_answers: true`). No two students share a flag.

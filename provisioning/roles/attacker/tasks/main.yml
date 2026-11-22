@@ -35,34 +35,37 @@
 # ---------------------------------------------------------------------------
 # Task 1 flag keeper (unique per sandbox)
 #
-# The Task 1 flag is the name of a special group that only shows up in `id`
-# when `id` is launched *through the shellcode*. The shellcode runner
-# (call_shellcode.c -> a32.out) is installed setuid-root; on startup it adds
-# this group to the process as a supplementary group and then drops back to the
-# normal user before running the injected command. Typing `id` in your own
-# shell does not reveal it (you are not a member of the group), so the only way
-# to read it is to make the shellcode run `id` -- which is the whole point of
-# Task 1.
+# The Task 1 flag is the name of a group whose only member is the dedicated
+# account `flagkeeper1` (it is flagkeeper1's primary group). The shellcode
+# runner (call_shellcode.c -> a32.out) is installed setuid-root; on startup it
+# calls initgroups("flagkeeper1"), which loads that group as a supplementary
+# group, then drops back to the normal user before running the injected
+# command. So the group shows up in `id` only when `id` is launched *through
+# the shellcode*. Typing `id` in your own shell does not reveal it (you are not
+# a member), so the only way to read it is to make the shellcode run `id` --
+# which is the whole point of Task 1.
 # ---------------------------------------------------------------------------
 - name: Generate the unique Task 1 flag (group name) for this sandbox
   set_fact:
     flag_task1: "flag-t1-{{ lookup('password', '/dev/null chars=hexdigits length=12') | lower }}"
 
-- name: Create the Task 1 flag group (user is deliberately NOT a member)
+- name: Create the Task 1 flag group (the student is deliberately NOT a member)
   group:
     name: "{{ flag_task1 }}"
     state: present
-  register: flag_t1_group
 
-- name: Record the Task 1 flag group's gid for the shellcode runner (root only)
-  copy:
-    dest: /etc/sl-flag-gid
-    content: "{{ flag_t1_group.gid }}\n"
-    owner: root
-    group: root
-    mode: '0600'
+- name: Create the dedicated flag-keeper account (its primary group is the flag)
+  user:
+    name: flagkeeper1
+    group: "{{ flag_task1 }}"
+    system: yes
+    shell: /usr/sbin/nologin
+    create_home: no
+    password: '!'
+    password_lock: yes
+    state: present
 
-- name: Pre-build the shellcode runners (a32.out / a64.out)
+- name: Pre-build the 32-bit shellcode runner (a32.out) as the student user
   command: make
   args:
     chdir: /home/user/shellcode

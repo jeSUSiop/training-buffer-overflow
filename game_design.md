@@ -119,10 +119,12 @@ Estimated total duration: **~65 minutes**.
   `netcat-traditional`, `gdb`, and deploys `shellcode/` and `attack-code/`. The
   `server-code/` is deliberately **not** shipped to the attacker, so the Level 2 buffer
   size stays unknown to the student. It also creates the per-sandbox **Task 1 group**
-  (`flag-t1-…`), pre-builds `a32.out`, and installs it **setuid-root** so the group is
-  revealed only via the shellcode. The `shellcode/Makefile` uses real prerequisites, so a
-  student running `make` after editing `shellcode_32.py` will not rebuild (and strip the
-  setuid bit from) `a32.out`.
+  (`flag-t1-…`) and a dedicated `flagkeeper1` account that holds it as its primary group,
+  pre-builds `a32.out`, and installs it **setuid-root**. On launch the runner calls
+  `initgroups("flagkeeper1")` to pick up the flag group as a supplementary group, then
+  drops to the student user, so the group is revealed only via the shellcode. The
+  `shellcode/Makefile` uses real prerequisites, so a student running `make` after editing
+  `shellcode_32.py` will not rebuild (and strip the setuid bit from) `a32.out`.
 - **Login**: user `user` / `Password123` on the attacker box (sudo enabled). *Note:* with
   sudo enabled a determined student could read the Task 1 group name from `/etc/group`
   directly; remove sudo (or restrict `/etc/group`) if you want Task 1 to be strictly
